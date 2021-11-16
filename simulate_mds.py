@@ -45,7 +45,7 @@ class Simulator():
     def __init__(self):
 
         self.robot_positions = np.array([[0., 2., 4., 2.],
-                                         [0., 0., 0., 4.]]).T
+                                         [-0.5, 0., -0.5, 4.]]).T
         """np.ndarray : Node positions as a n x 2 np.ndarray where n is
         number of nodes in the network [m]."""
 
@@ -55,7 +55,7 @@ class Simulator():
         self.dims = self.robot_positions.shape[1]
         """int : Dimension of state space."""
 
-        self.sensor_std = 0.05
+        self.sensor_std = 0.09
         """float : sensor noise standard deviation."""
 
         self.ranges_true = dist.pdist(self.robot_positions,
@@ -133,9 +133,9 @@ class Simulator():
         """
 
         # MEASURED RANGES UNCERTAINTY
-        plt.figure()
+        fig = plt.figure(figsize=(3,9))
         for ii in range(self.r):
-            plt.subplot(2, 3, ii+1)
+            plt.subplot(6, 1, ii+1)
 
             hist, bin_edges = np.histogram(self.measured_distribution[ii],
                                             bins = 20, density = True)
@@ -145,12 +145,13 @@ class Simulator():
             x_axis = np.linspace(bin_edges[0], bin_edges[-1], 100)
             plt.plot(x_axis, stats.norm.pdf(x_axis,
                      self.ranges_true[ii], self.sensor_std),"r")
-        plt.suptitle("Uncertainty distribution of measured ranges")
+        plt.suptitle("Uncertainty \n distribution \n of measured ranges")
+        fig.tight_layout()
 
         # SQUARED RANGES UNCERTAINTY
-        plt.figure()
+        fig = plt.figure(figsize=(3,9))
         for ii in range(self.r):
-            plt.subplot(2, 3, ii+1)
+            plt.subplot(6, 1, ii+1)
 
             hist, bin_edges = np.histogram(self.sqrd_distribution[ii],
                                             bins = 20, density = True)
@@ -162,15 +163,48 @@ class Simulator():
                      nc=(self.ranges_true[ii]/self.sensor_std)**2,
                      scale = (self.sensor_std**2)),"r")
 
-        plt.suptitle("Uncertainty distribution of squared ranges")
+        plt.suptitle("Uncertainty \n distribution \n of squared ranges")
+        fig.tight_layout()
 
 
         # ENDING POSITIONS
-        plt.figure()
+        fig = plt.figure()
         for ii in range(self.n):
             plt.scatter(self.pos_distribution[0,ii,:],
-                        self.pos_distribution[1,ii,:],c="C"+str(ii+1))
+                        self.pos_distribution[1,ii,:],
+                        c="C"+str(ii+1),
+                        label="robot "+str(ii+1))
         plt.axis("equal")
+        plt.legend()
+        fig.tight_layout()
+
+        # ENDING X POSITION DISTRIBUTIONS
+        fig = plt.figure(figsize=(3,6))
+        for ii in range(self.n):
+            plt.subplot(self.n, 1, ii+1)
+
+            hist, bin_edges = np.histogram(self.pos_distribution[0,ii,:],
+                                            bins = 20, density = True)
+            plt.hist(self.pos_distribution[0,ii,:],
+                     bins = 20, density = True, color="C"+str(ii+1))
+            plt.title("Robot " + str(ii+1))
+
+        plt.suptitle("Uncertainty \n distribution \n of X position")
+        fig.tight_layout()
+
+        # ENDING Y POSITION DISTRIBUTIONS
+        fig = plt.figure(figsize=(3,6))
+        for ii in range(self.n):
+            plt.subplot(self.n, 1, ii+1)
+
+            hist, bin_edges = np.histogram(self.pos_distribution[1,ii,:],
+                                            bins = 20, density = True)
+            plt.hist(self.pos_distribution[1,ii,:],
+                     bins = 20, density = True, color="C"+str(ii+1))
+            plt.title("Robot " + str(ii+1))
+
+        plt.suptitle("Uncertainty \n distribution \n of Y position")
+        fig.tight_layout()
 
 
 
