@@ -16,6 +16,7 @@ References
 __authors__ = "D. Knowles"
 __date__ = "15 Nov 2021"
 
+import torch
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
@@ -24,28 +25,33 @@ import scipy.spatial.distance as dist
 
 def main():
 
-    k = 10000
+    k = 3
     """int : iterations of sampling to perform"""
 
-    s = Simulator()
-    for kk in range(k):
-        if kk % np.ceil(int(k/10)) == 0:
-            print(round(100.*(kk+1)/k,0),"% complete")
-        s.measure()
-        s.compute()
-        s.check_distributions()
+    s = Simulator(k)
+        # if kk % np.ceil(int(k/10)) == 0:
+        #     print(round(100.*(kk+1)/k,0),"% complete")
+    s.measure()
+    s.compute()
+    s.check_distributions()
 
-    s.plot_distrubtions()
+    # s.plot_distrubtions()
+    s.beauty_plots()
 
     plt.show()
 
 
 class Simulator():
 
-    def __init__(self):
+    def __init__(self, k):
 
-        self.robot_positions = np.array([[0., 2., 4., 2.],
-                                         [-0.5, 0., -0.5, 4.]]).T
+        self.k = k
+        """int : iterations of sampling to perform"""
+
+        # self.robot_positions = np.array([[-1., 0., -1., 0.0],
+        #                                  [-2., 0.,  2., 10.]]).T
+        self.robot_positions = np.array([[0., 0., 0, 0.0],
+                                         [-2., 0.,  2., 10.]]).T
         """np.ndarray : Node positions as a n x 2 np.ndarray where n is
         number of nodes in the network [m]."""
 
@@ -55,15 +61,18 @@ class Simulator():
         self.dims = self.robot_positions.shape[1]
         """int : Dimension of state space."""
 
-        self.sensor_std = 0.09
+        self.sensor_std = 0.0
         """float : sensor noise standard deviation."""
 
-        self.ranges_true = dist.pdist(self.robot_positions,
-                                      metric = "euclidean")
-        """np.ndarray : truth value of ranges between all points."""
-        print(self.ranges_true)
+        ranges_true = dist.pdist(self.robot_positions,
+                                 metric = "euclidean")
+        self.ranges_true = np.tile(ranges_true.reshape(-1,1), (1, self.k))
+        """np.ndarray : truth value of ranges between all points.
+        Full array shape is (self.r x self.k).
+        """
+        print(ranges_true)
 
-        self.r = len(self.ranges_true)
+        self.r = self.ranges_true.shape[0]
         """int: number of ranges"""
 
         self.measured_distribution = [[] for ii in range(self.r)]
@@ -74,12 +83,19 @@ class Simulator():
         """Create a new random measurement.
 
         """
+        self.noise = np.random.normal(loc = 0.0,
+                           scale = self.sensor_std,
+                           size = (self.r, self.k))
+                           # np.random.uniform(low = -0.5,
+                           #                     high = 0.5,
+                           #                     size = self.r)
+        """np.ndarray : noise added to ranges"""
 
-        self.ranges_measured = self.ranges_true \
-                             + np.random.normal(loc = 0.0,
-                                                scale = self.sensor_std,
-                                                size = self.r)
+        self.ranges_measured = self.ranges_true + self.noise
         """np.ndarray : measured ranges with added sensor noise."""
+
+        print(self.ranges_measured.shape)
+        print(self.ranges_measured)
 
 
     def compute(self):
@@ -87,21 +103,93 @@ class Simulator():
 
         """
         self.ranges_sqrd = self.ranges_measured**2
+        print(self.ranges_sqrd)
 
-        self.D = np.zeros((self.n,self.n))
+        self.D = np.zeros((self.n, self.n, self.k))
         cc = 0
         for ii in range(self.n-1):
             for jj in range(self.n-ii-1):
-                self.D[jj+1+ii,ii] = self.ranges_sqrd[cc]
+                self.D[jj+1+ii,ii,:] = self.ranges_sqrd[cc]*np.ones(self.k)
                 cc += 1
-        self.D += self.D.T
+        self.D += np.transpose(self.D, (1,0,2))
 
 
         J = np.eye(self.n) - (1./self.n)*np.ones((self.n,self.n))
-        self.G = -0.5*J.dot(self.D).dot(J)
-        U, S, V = np.linalg.svd(self.G)
+        J = np.expand_dims(J, 2)
+        J = np.tile(J,(1,1,self.k))
+        self.G = -0.5*J*self.D*J
+
+        G = torch.from_numpy(self.G)
+        print("G:\n",G.shape)
+        print(G[:,:,0])
+        print(G[:,:,1])
+        print(G[:,:,2])
+        # U, S, Vh = torch.linalg.svd(G, full_matrices = True)
+        L, Q = torch.linalg.eigh(G)
+        print(L.shape)
+        print("Q:",Q.shape)
+        print("Q:\n",Q)
+
+        S_full = torch.diag_embed(Q, dim1=0, dim2=2)
+        print(S_full.shape)
+        print(S_full[:,:,0])
+
+        # U, S, V = np.linalg.svd(self.G)
         S = np.diag(S)[:self.dims,:]
         self.X = np.sqrt(S).dot(U.T)
+
+        self.X = self.align(self.X.copy(),
+                            self.X.copy(),
+                            self.robot_positions.copy().T)
+
+    def align(self, X, Xa, Y):
+        """Algins relative postions to absolute positions.
+
+        Method also known as Procrustes analysis and taken from [1]_.
+
+        Parameters# ENDING X & Y POSITION DISTRIBUTIONS
+        subfigs[0,1].suptitle("Robot X & Y Position Distributions")
+        axes = subfigs[0,1].subplots(self.n, 2)
+        ----------
+        X : np.ndarray
+            Positions of nodes in graph with shape (dims x n).
+        Xa : np.ndarray
+            Subset of X for which positions are known (dims x <=n).
+        Y : np.ndarray
+            Known positions of of Xa nodes of shape (dims x <=n).
+
+        Returns
+        -------
+        X_aligned : np.ndarray
+            Aligned version of X of shape (dims x n).
+
+        References
+        ----------
+        .. [1] Dokmanic, R. Parhizkar, J. Ranieri, and M. Vetterli,
+               “Euclidean Distance Matrices: Essential theory, algorithms, and
+               applications,”IEEE Signal Processing Magazine, vol. 32, no. 6,
+               pp. 12–30, nov 2015.
+
+        """
+
+        # find centroids
+        xa_c = Xa.dot(np.ones((Xa.shape[1],1)))/Xa.shape[1]
+        y_c = Y.dot(np.ones((Y.shape[1],1)))/Y.shape[1]
+        Xa_bar = Xa - np.tile(xa_c,(1,Xa.shape[1]))
+        Y_bar = Y - np.tile(y_c,(1,Y.shape[1]))
+
+        # calculate rotation
+        U, S, Vh = np.linalg.svd(Xa_bar.dot(Y_bar.T))
+
+
+        V = Vh.T
+        R = V.dot(U.T)
+
+        # translation and rotation
+        row_1 = np.ones((1,X.shape[1]))
+        X_aligned = R.dot(X - xa_c.dot(row_1)) + y_c.dot(row_1)
+
+        return X_aligned
 
     def check_distributions(self):
         """Check the distribution of values.
@@ -135,7 +223,7 @@ class Simulator():
         # MEASURED RANGES UNCERTAINTY
         fig = plt.figure(figsize=(3,9))
         for ii in range(self.r):
-            plt.subplot(6, 1, ii+1)
+            plt.subplot(self.r, 1, ii+1)
 
             hist, bin_edges = np.histogram(self.measured_distribution[ii],
                                             bins = 20, density = True)
@@ -151,7 +239,7 @@ class Simulator():
         # SQUARED RANGES UNCERTAINTY
         fig = plt.figure(figsize=(3,9))
         for ii in range(self.r):
-            plt.subplot(6, 1, ii+1)
+            plt.subplot(self.r, 1, ii+1)
 
             hist, bin_edges = np.histogram(self.sqrd_distribution[ii],
                                             bins = 20, density = True)
@@ -164,18 +252,6 @@ class Simulator():
                      scale = (self.sensor_std**2)),"r")
 
         plt.suptitle("Uncertainty \n distribution \n of squared ranges")
-        fig.tight_layout()
-
-
-        # ENDING POSITIONS
-        fig = plt.figure()
-        for ii in range(self.n):
-            plt.scatter(self.pos_distribution[0,ii,:],
-                        self.pos_distribution[1,ii,:],
-                        c="C"+str(ii+1),
-                        label="robot "+str(ii+1))
-        plt.axis("equal")
-        plt.legend()
         fig.tight_layout()
 
         # ENDING X POSITION DISTRIBUTIONS
@@ -205,6 +281,98 @@ class Simulator():
 
         plt.suptitle("Uncertainty \n distribution \n of Y position")
         fig.tight_layout()
+
+
+        # ENDING POSITIONS MAP
+        fig = plt.figure()
+        for ii in range(self.n):
+            plt.scatter(self.pos_distribution[0,ii,:],
+                        self.pos_distribution[1,ii,:],
+                        c="C"+str(ii+1),
+                        label="robot "+str(ii+1))
+        plt.axis("equal")
+        plt.legend()
+        fig.tight_layout()
+
+    def beauty_plots(self):
+        """Plot some beautiful plots.
+
+        """
+
+        fig = plt.figure(figsize=(12,5))
+        # fig_axes = fig.add_gridspec(3,2)
+        # subfigs = np.array([[fig.add_subplot(fig_axes[0:2, 0]),
+        #             fig.add_subplot(fig_axes[0:2, 1])],
+        #            [fig.add_subplot(fig_axes[2, 0]),
+        #             fig.add_subplot(fig_axes[2, 1])]])
+
+        subfigs = fig.subfigures(nrows = 2,
+                                     ncols = 2,
+                                     height_ratios = [3, 1])
+
+        # for outerind, subfig in enumerate(subfigs.flat):
+        #
+        #     print(outerind, subfig)
+        #     subfig.suptitle(f'Subfig {outerind}')
+        #     axs = subfig.subplots(2, 1)
+        #     for innerind, ax in enumerate(axs.flat):
+        #         ax.set_title(f'outer={outerind}, inner={innerind}', fontsize='small')
+        #         ax.set_xticks([])
+        #         ax.set_yticks([])
+
+        # ENDING POSITIONS MAP
+        subfigs[0,0].suptitle("Position Map")
+        ax_map = subfigs[0,0].subplots(1, 1)
+
+        for ii in range(self.n):
+            plt.scatter(self.pos_distribution[0,ii,:],
+                        self.pos_distribution[1,ii,:],
+                        c="C"+str(ii+1),
+                        label="robot "+str(ii+1))
+        ax_map.set_aspect("equal", adjustable="datalim")
+        plt.xlabel("X axis [m]")
+        plt.ylabel("Y axis [m]")
+        plt.legend()
+        fig.tight_layout(pad=2)
+
+        # ENDING X & Y POSITION DISTRIBUTIONS
+        subfigs[0,1].suptitle("Robot X & Y Position Distributions")
+        axes = subfigs[0,1].subplots(self.n, 2)
+        for ii in range(self.n):
+
+            hist, bin_edges = np.histogram(self.pos_distribution[0,ii,:],
+                                            bins = 20, density = True)
+            axes[ii,0].hist(self.pos_distribution[0,ii,:],
+                     bins = 20, density = True, color="C"+str(ii+1))
+            axes[ii,0].set_title("Robot " + str(ii+1))
+
+            hist, bin_edges = np.histogram(self.pos_distribution[1, ii ,:],
+                                            bins = 20, density = True)
+            axes[ii,1].hist(self.pos_distribution[1, ii, :],
+                     bins = 20, density = True, color="C"+str(ii +1))
+            axes[ii,1].set_title("Robot " + str(ii+1))
+
+        # plt.tight_layout(pad=5.0, h_pad = 5.0, w_pad = 10.0)
+        # fig.tight_layout(pad=10)
+        # fig.tight_layout(w_pad = 5.0)
+        # fig.tight_layout(h_pad = 1.0)
+
+
+        # # ENDING Y POSITION DISTRIBUTIONS
+        # fig = plt.figure(figsize=(3,6))
+        # for ii in range(self.n):
+        #     plt.subplot(self.n, 1, ii+1)
+        #
+        #     hist, bin_edges = np.histogram(self.pos_distribution[1,ii,:],
+        #                                     bins = 20, density = True)
+        #     plt.hist(self.pos_distribution[1,ii,:],
+        #              bins = 20, density = True, color="C"+str(ii+1))
+        #     plt.title("Robot " + str(ii+1))
+        #
+        # plt.suptitle("Uncertainty \n distribution \n of Y position")
+
+
+
 
 
 
