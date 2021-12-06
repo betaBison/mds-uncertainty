@@ -27,7 +27,7 @@ from matplotlib.widgets import Slider, Button
 
 def main():
 
-    k = 1000
+    k = 10000
     """int : iterations of sampling to perform."""
 
     verbose = False
@@ -36,6 +36,9 @@ def main():
     s = Simulator(k, verbose)
         # if kk % np.ceil(int(k/10)) == 0:
         #     print(round(100.*(kk+1)/k,0),"% complete")
+    s.model_truth()
+    s.model_bias()
+    s.model_white_noise()
     s.measure()
     s.compute()
     s.check_distributions()
@@ -53,11 +56,16 @@ class Simulator():
         self.k = k
         """int : iterations of sampling to perform"""
 
-        self.verbose = False
+        self.verbose = verbose
         """bool : print lots of debug statements."""
 
-        self.robot_positions = np.array([[-1., 0., -1., 10.0],
-                                         [-2., 0.,  2., 0.]]).T
+        # easy to see multi-modal stuff
+        # self.robot_positions = np.array([[0.5, 0., -0.5, 10.0],
+        #                                  [2., -1.5,  1., 0.]]).T
+
+        self.robot_positions = np.array([[1., 0., -2., 0.0],
+                                         [2., -1.5,  1., 0.]]).T
+
         # self.robot_positions = np.array([[0., 0., 0, 0.0],
         #                                  [-2., 0.,  2., 10.]]).T
         """np.ndarray : Node positions as a n x 2 np.ndarray where n is
@@ -69,9 +77,13 @@ class Simulator():
         self.dims = self.robot_positions.shape[1]
         """int : Dimension of state space."""
 
-        self.sensor_std = 0.1
+        self.sensor_std = 0.5
         """float : sensor noise standard deviation."""
 
+        self.sensor_bias = 0.0
+        """float : sensor bias added to measurements."""
+
+    def model_truth(self):
         ranges_true = dist.pdist(self.robot_positions,
                                  metric = "euclidean")
         self.ranges_true = np.tile(ranges_true.reshape(-1,1), (1, self.k))
@@ -84,19 +96,24 @@ class Simulator():
         self.r = self.ranges_true.shape[0]
         """int: number of ranges"""
 
-        self.measured_distribution = [[] for ii in range(self.r)]
-        self.sqrd_distribution = [[] for ii in range(self.r)]
+    def model_bias(self):
+        self.bias = np.random.uniform(low=0.0,
+                    high = self.sensor_bias,
+                    size = (self.r, 1))
+
+    def model_white_noise(self):
+        self.white_noise = np.random.normal(loc = 0.0,
+                           scale = self.sensor_std,
+                           size = (self.r, self.k))
 
     def measure(self):
         """Create a new random measurement.
 
         """
-        self.noise = np.random.normal(loc = 0.0,
-                           scale = self.sensor_std,
-                           size = (self.r, self.k))
-                           # np.random.uniform(low = -0.5,
-                           #                     high = 0.5,
-                           #                     size = self.r)
+        self.measured_distribution = [[] for ii in range(self.r)]
+        self.sqrd_distribution = [[] for ii in range(self.r)]
+
+        self.noise = self.white_noise + self.bias
         """np.ndarray : noise added to ranges"""
 
         self.ranges_measured = self.ranges_true + self.noise
@@ -196,9 +213,11 @@ class Simulator():
             for pp in range(self.X.shape[0]):
                 print(self.X[pp,:,:])
 
-        # self.X = self.align(self.X.copy(),
-        #                     self.X.copy(),
-        #                     self.robot_positions.copy().T)
+        Y = np.expand_dims(self.robot_positions.T, 0)
+        Y = torch.from_numpy(np.tile(Y,(self.k,1,1)))
+        self.X = self.align(self.X,
+                            self.X.clone(),
+                            Y)
 
     def align(self, X, Xa, Y):
         """Algins relative postions to absolute positions.
@@ -208,11 +227,11 @@ class Simulator():
         Parameters
         ----------
         X : np.ndarray
-            Positions of nodes in graph with shape (dims x n).
+            Positions of nodes in graph with shape (k x dims x n).
         Xa : np.ndarray
-            Subset of X for which positions are known (dims x <=n).
+            Subset of X for which positions are known (k x dims x <=n).
         Y : np.ndarray
-            Known positions of of Xa nodes of shape (dims x <=n).
+            Known positions of of Xa nodes of shape (k x dims x <=n).
 
         Returns
         -------
@@ -227,23 +246,22 @@ class Simulator():
                pp. 12–30, nov 2015.
 
         """
-
-        # find centroids
-        xa_c = Xa.dot(np.ones((Xa.shape[1],1)))/Xa.shape[1]
-        y_c = Y.dot(np.ones((Y.shape[1],1)))/Y.shape[1]
-        Xa_bar = Xa - np.tile(xa_c,(1,Xa.shape[1]))
-        Y_bar = Y - np.tile(y_c,(1,Y.shape[1]))
+        # calculate centroids
+        Y_c = torch.mean(Y, dim = 2, keepdim = True)
+        Y_bar = Y - Y_c
+        Xa_c = torch.mean(Xa, dim = 2, keepdim = True)
+        Xa_bar = Xa - Xa_c
 
         # calculate rotation
-        U, S, Vh = np.linalg.svd(Xa_bar.dot(Y_bar.T))
+        U, S, Vh = torch.linalg.svd(torch.matmul(Xa_bar,
+                                    torch.transpose(Y_bar,1,2)))
 
+        R = torch.matmul(torch.transpose(Vh,1,2), torch.transpose(U,1,2))
 
-        V = Vh.T
-        R = V.dot(U.T)
 
         # translation and rotation
-        row_1 = np.ones((1,X.shape[1]))
-        X_aligned = R.dot(X - xa_c.dot(row_1)) + y_c.dot(row_1)
+        # todo this currently assumes that X is the same as Xa
+        X_aligned = torch.matmul(R,X - Xa_c) + Y_c
 
         return X_aligned
 
@@ -350,43 +368,55 @@ class Simulator():
 
         """
 
-        self.fig = plt.figure(figsize=(12,5))
+        self.fig = plt.figure(num="Multi-dimensional Scaling " \
+                                 + "Uncertainty Interactive Plotter",
+                             figsize=(12,5))
         subfigs = self.fig.subfigures(nrows = 2,
                                  ncols = 2,
                                  height_ratios = [3, 1])
 
         # ENDING POSITIONS MAP
         subfigs[0,0].suptitle("Position Map")
-        ax_map = subfigs[0,0].subplots(1, 1)
+        self.ax_map = subfigs[0,0].subplots(1, 1)
 
         self.map_scatters = []
         for ii in range(self.n):
-            new_map = plt.scatter(self.X[:,0,ii],
+            new_map = self.ax_map.scatter(self.X[:,0,ii],
                                   self.X[:,1,ii],
                                   c="C"+str(ii+1),
+                                  s=0.5,
                                   label="robot "+str(ii+1))
+            self.final_pos = self.ax_map.scatter(self.robot_positions[ii,0],
+                                self.robot_positions[ii,1],
+                                marker = "*",
+                                c="C"+str(ii+1),
+                                s = 50.0,
+                                edgecolors="k"
+                                )
             self.map_scatters.append(new_map)
-        ax_map.set_aspect("equal", adjustable="datalim")
+        plt.xlim(-22,22)
+        plt.ylim(-12,12)
+        self.ax_map.set_aspect("equal", adjustable="datalim")
         plt.xlabel("X axis [m]")
         plt.ylabel("Y axis [m]")
         plt.legend()
 
         # ENDING X & Y POSITION DISTRIBUTIONS
         subfigs[0,1].suptitle("Robot X & Y Position Distributions")
-        axes = subfigs[0,1].subplots(self.n, 2)
+        self.xy_distrib_axes = subfigs[0,1].subplots(self.n, 2)
         self.x_hists = []
         self.y_hists = []
         for ii in range(self.n):
 
             hist, bin_edges = np.histogram(self.X[:, 0, ii].numpy(),
                                             bins = 50, density = True)
-            axes[ii,0].hist(self.X[:, 0, ii].numpy(),
+            self.xy_distrib_axes[ii,0].hist(self.X[:, 0, ii].numpy(),
                      bins = 50, density = True, color="C"+str(ii+1))
             # axes[ii,0].set_title("Robot " + str(ii+1))
 
             hist, bin_edges = np.histogram(self.X[:, 1, ii].numpy(),
                                             bins = 50, density = True)
-            axes[ii,1].hist(self.X[:, 1, ii].numpy(),
+            self.xy_distrib_axes[ii,1].hist(self.X[:, 1, ii].numpy(),
                      bins = 50, density = True, color="C"+str(ii +1))
             # axes[ii,1].set_title("Robot " + str(ii+1))
 
@@ -394,29 +424,29 @@ class Simulator():
         subfigs[1,1].suptitle("Initial Ranges Uncertainty Map")
         self.ax_ranges = subfigs[1,1].subplots(1, 1)
 
-        hist, bin_edges = np.histogram(self.noise.reshape(-1,1),
+        hist, bin_edges = np.histogram(self.noise[0,:],
                                         bins = 50, density = True)
         x_bins = (bin_edges[1:] + bin_edges[:-1])/2.
-        xlimmax = max(abs(bin_edges[0]),abs(bin_edges[-1]))
-        self.ax_ranges.set_xlim(-xlimmax,xlimmax)
-        xl,xr = self.ax_ranges.get_xlim()
-        self.ranges_hist = self.ax_ranges.bar(x_bins, hist, width = (xr-xl)/50.)
+        xlimmax = max(abs(self.bias[0,0] - bin_edges[0]),
+                      abs(bin_edges[-1] - self.bias[0,0]))
+        self.ax_ranges.set_xlim(-xlimmax+self.bias[0,0],xlimmax+self.bias[0,0])
+        # xl,xr = self.ax_ranges.get_xlim()
+        self.ranges_hist = self.ax_ranges.bar(x_bins, hist, width = (xlimmax*2)/50.)
         # print(self.ranges_hist)
 
-        x_axis = np.linspace(bin_edges[0], bin_edges[-1], 100)
+        x_axis = np.linspace(-xlimmax+self.bias[0,0], xlimmax+self.bias[0,0], 100)
         self.ranges_normal_plt = self.ax_ranges.plot(x_axis, stats.norm.pdf(x_axis,
-                                  0, self.sensor_std),"r")
+                                  self.bias[0,0], self.sensor_std),"r")
 
         # make all of the slider axes
         num_sliders = 4
-        slider_axes = subfigs[1,0].subplots(num_sliders, 3,
-                        gridspec_kw={'width_ratios': [1, 4, 2]})
+        slider_axes = subfigs[1,0].subplots(num_sliders, 4,
+                        gridspec_kw={'width_ratios': [1, 4, 0.5, 1.5]})
 
         # remove all far left axis lines (they're just a filler)
         for ii in range(num_sliders):
             slider_axes[ii,0].axis("off")
-            # .set_visible(False)
-            # slider_axes[ii,0].yaxis.set_visible(False)
+            slider_axes[ii,2].axis("off")
 
         # Standard deviation horizontal slider
         self.std_slider = Slider(
@@ -424,23 +454,76 @@ class Simulator():
             label="Meas. Std.",
             valmin=0.0,
             valmax=10,
-            valinit=0.1,
-            valstep=0.01
+            valinit=self.sensor_std,
+            valstep=0.1
         )
-        self.std_slider.on_changed(self.update_plots)
+        self.std_slider.on_changed(self.update_std)
 
         # Standard deviation reset button
-        std_button = Button(slider_axes[0,2], 'Reset',
+        std_button = Button(slider_axes[0,3], 'Reset',
                             hovercolor='0.975')
         std_button.on_clicked(self.reset_std_slider)
         # add dummy reference so button isn't garbage collected
-        slider_axes[0,2]._button = std_button
+        slider_axes[0,3]._button = std_button
+
+        # bias horizontal slider
+        self.bias_slider = Slider(
+            ax=slider_axes[1,1],
+            label="Meas. Bias",
+            valmin=0.0,
+            valmax=10,
+            valinit=self.sensor_bias,
+            valstep=0.1
+        )
+        self.bias_slider.on_changed(self.update_bias)
+
+        # bias reset button
+        bias_button = Button(slider_axes[1,3], 'Reset',
+                            hovercolor='0.975')
+        bias_button.on_clicked(self.reset_bias_slider)
+        # add dummy reference so button isn't garbage collected
+        slider_axes[1,3]._button = bias_button
+
+        # posx horizontal slider
+        self.posx_slider = Slider(
+            ax=slider_axes[2,1],
+            label="X Position",
+            valmin=-15,
+            valmax=15,
+            valinit=self.robot_positions[-1,0],
+            valstep=0.1
+        )
+        self.posx_slider.on_changed(self.update_posx)
+
+        # posx reset button
+        posx_button = Button(slider_axes[2,3], 'Reset',
+                            hovercolor='0.975')
+        posx_button.on_clicked(self.reset_posx_slider)
+        # add dummy reference so button isn't garbage collected
+        slider_axes[2,3]._button = posx_button
+
+        # posy horizontal slider
+        self.posy_slider = Slider(
+            ax=slider_axes[3,1],
+            label="Y Position",
+            valmin=-8.,
+            valmax=8.,
+            valinit=self.robot_positions[-1,1],
+            valstep=0.1
+        )
+        self.posy_slider.on_changed(self.update_posy)
+
+        # posy reset button
+        posy_button = Button(slider_axes[3,3], 'Reset',
+                            hovercolor='0.975')
+        posy_button.on_clicked(self.reset_posy_slider)
+        # add dummy reference so button isn't garbage collected
+        slider_axes[3,3]._button = posy_button
 
         plt.subplots_adjust(hspace=0.5, right=0.95, bottom = 0.18)
 
 
-    def update_plots(self, val):
-        self.sensor_std = self.std_slider.val
+    def update_plots(self):
 
         self.measure()
         self.compute()
@@ -453,8 +536,23 @@ class Simulator():
             new_map_data[:,1] = self.X[:,1,ii]
             self.map_scatters[ii].set_offsets(new_map_data)
 
+            hist, bin_edges = np.histogram(self.X[:, 0, ii].numpy(),
+                                            bins = 50, density = True)
+            self.xy_distrib_axes[ii,0].clear()
+            self.xy_distrib_axes[ii,0].hist(self.X[:, 0, ii].numpy(),
+                     bins = 50, density = True, color="C"+str(ii+1))
+            self.xy_distrib_axes[ii,1].clear()
+            hist, bin_edges = np.histogram(self.X[:, 1, ii].numpy(),
+                                            bins = 50, density = True)
+            self.xy_distrib_axes[ii,1].hist(self.X[:, 1, ii].numpy(),
+                     bins = 50, density = True, color="C"+str(ii +1))
 
-        hist, bin_edges = np.histogram(self.noise.reshape(-1,1),
+        # self.ax_map.relim()
+        # self.ax_map.autoscale_view()
+        # self.ax_map.set_aspect("equal", adjustable="datalim")
+        self.final_pos.set_offsets(self.robot_positions[-1,:])
+
+        hist, bin_edges = np.histogram(self.noise[0,:],
                                         bins = 50, density = True)
 
         [bar.set_height(hist[i]) for i, bar in enumerate(self.ranges_hist)]
@@ -465,16 +563,46 @@ class Simulator():
         x_axis = np.linspace(bin_edges[0], bin_edges[-1], 100)
         self.ranges_normal_plt[0].set_xdata(x_axis)
         self.ranges_normal_plt[0].set_ydata(stats.norm.pdf(x_axis,
-                                         0, self.sensor_std))
+                                         self.bias[0,0], self.sensor_std))
         self.ax_ranges.relim()
-        xlimmax = max(abs(bin_edges[0]),abs(bin_edges[-1]))
-        self.ax_ranges.set_xlim(-xlimmax,xlimmax)
+        xlimmax = max(abs(self.bias[0,0] - bin_edges[0]),
+                      abs(bin_edges[-1] - self.bias[0,0]))
+        self.ax_ranges.set_xlim(-xlimmax+self.bias[0,0],xlimmax+self.bias[0,0])
         self.ax_ranges.autoscale_view()
 
         self.fig.canvas.draw_idle()
 
+    def update_std(self, val):
+        self.sensor_std = self.std_slider.val
+        self.model_white_noise()
+        self.update_plots()
+
+    def update_bias(self, val):
+        self.sensor_bias = self.bias_slider.val
+        self.model_bias()
+        self.update_plots()
+
+    def update_posx(self, val):
+        self.robot_positions[-1,0] = self.posx_slider.val
+        self.model_truth()
+        self.update_plots()
+
+    def update_posy(self, val):
+        self.robot_positions[-1,1] = self.posy_slider.val
+        self.model_truth()
+        self.update_plots()
+
     def reset_std_slider(self, event):
         self.std_slider.reset()
+
+    def reset_bias_slider(self, event):
+        self.bias_slider.reset()
+
+    def reset_posx_slider(self, event):
+        self.posx_slider.reset()
+
+    def reset_posy_slider(self, event):
+        self.posy_slider.reset()
 
 
 
