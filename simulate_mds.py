@@ -43,7 +43,6 @@ def main():
     s.compute()
     s.check_distributions()
 
-    # s.plot_distrubtions()
     s.beauty_plots()
 
     plt.show()
@@ -278,90 +277,6 @@ class Simulator():
         for ii in range(self.r):
             self.measured_distribution[ii].append(measured_distribution[ii])
             self.sqrd_distribution[ii].append(sqrd_distribution[ii])
-
-    def plot_distrubtions(self):
-        """Plot the distribution of a provided list.
-
-        Parameters
-        ----------
-        l : list
-            List of values to plot the histogram for.
-
-        """
-
-        # MEASURED RANGES UNCERTAINTY
-        fig = plt.figure(figsize=(3,9))
-        for ii in range(self.r):
-            plt.subplot(self.r, 1, ii+1)
-
-            hist, bin_edges = np.histogram(self.measured_distribution[ii],
-                                            bins = 20, density = True)
-            plt.hist(self.measured_distribution[ii],
-                     bins = 20, density = True)
-
-            x_axis = np.linspace(bin_edges[0], bin_edges[-1], 100)
-            plt.plot(x_axis, stats.norm.pdf(x_axis,
-                     self.ranges_true[ii], self.sensor_std),"r")
-        plt.suptitle("Uncertainty \n distribution \n of measured ranges")
-        fig.tight_layout()
-
-        # SQUARED RANGES UNCERTAINTY
-        fig = plt.figure(figsize=(3,9))
-        for ii in range(self.r):
-            plt.subplot(self.r, 1, ii+1)
-
-            hist, bin_edges = np.histogram(self.sqrd_distribution[ii],
-                                            bins = 20, density = True)
-            plt.hist(self.sqrd_distribution[ii],
-                     bins = 20, density = True)
-
-            x_axis = np.linspace(bin_edges[0], bin_edges[-1], 100)
-            plt.plot(x_axis, stats.ncx2.pdf(x_axis, df=1.,
-                     nc=(self.ranges_true[ii]/self.sensor_std)**2,
-                     scale = (self.sensor_std**2)),"r")
-
-        plt.suptitle("Uncertainty \n distribution \n of squared ranges")
-        fig.tight_layout()
-
-        # ENDING X POSITION DISTRIBUTIONS
-        fig = plt.figure(figsize=(3,6))
-        for ii in range(self.n):
-            plt.subplot(self.n, 1, ii+1)
-
-            hist, bin_edges = np.histogram(self.pos_distribution[0,ii,:],
-                                            bins = 20, density = True)
-            plt.hist(self.pos_distribution[0,ii,:],
-                     bins = 20, density = True, color="C"+str(ii+1))
-            plt.title("Robot " + str(ii+1))
-
-        plt.suptitle("Uncertainty \n distribution \n of X position")
-        fig.tight_layout()
-
-        # ENDING Y POSITION DISTRIBUTIONS
-        fig = plt.figure(figsize=(3,6))
-        for ii in range(self.n):
-            plt.subplot(self.n, 1, ii+1)
-
-            hist, bin_edges = np.histogram(self.pos_distribution[1,ii,:],
-                                            bins = 20, density = True)
-            plt.hist(self.pos_distribution[1,ii,:],
-                     bins = 20, density = True, color="C"+str(ii+1))
-            plt.title("Robot " + str(ii+1))
-
-        plt.suptitle("Uncertainty \n distribution \n of Y position")
-        fig.tight_layout()
-
-
-        # ENDING POSITIONS MAP
-        fig = plt.figure()
-        for ii in range(self.n):
-            plt.scatter(self.X[:,0,ii],
-                        self.X[:,1,ii],
-                        c="C"+str(ii+1),
-                        label="robot "+str(ii+1))
-        plt.axis("equal")
-        plt.legend()
-        fig.tight_layout()
 
     def beauty_plots(self):
         """Plot some beautiful plots.
