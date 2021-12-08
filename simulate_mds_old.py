@@ -35,8 +35,7 @@ def main():
     s.compute()
     s.check_distributions()
 
-    # s.plot_distrubtions()
-    s.beauty_plots()
+    s.plot_distrubtions()
 
     plt.show()
 
@@ -50,8 +49,8 @@ class Simulator():
 
         # self.robot_positions = np.array([[-1., 0., -1., 0.0],
         #                                  [-2., 0.,  2., 10.]]).T
-        self.robot_positions = np.array([[-1., 0., -1., 10.0],
-                                         [-2., 0.,  2., 0.]]).T
+        self.robot_positions = np.array([[0., 2., 6., 12.0],
+                                         [0., 0.,  0., 0.]]).T
         """np.ndarray : Node positions as a n x 2 np.ndarray where n is
         number of nodes in the network [m]."""
 
@@ -115,7 +114,7 @@ class Simulator():
         self.D = self.D[0,:,:]
         print("D check\n")
         print(self.D)
-        print(self.D.shape)
+        # print(self.D.shape)
 
         J = np.eye(self.n) - (1./self.n)*np.ones((self.n,self.n))
         print("J check")
@@ -135,13 +134,19 @@ class Simulator():
 
 
         U, S, V = np.linalg.svd(self.G)
+        S = np.diag(S)
         print("S check")
         print(S)
-        S = np.diag(S)[:self.dims,:]
+
+        print("compare:\n",U.dot(S).dot(V))
+        print("u vs. v:\n",U.T,"\n",V)
+        S = S[:self.dims,:]
         self.X = np.sqrt(S).dot(U.T)
         print("X check")
         print(self.X.shape)
         print(self.X)
+        print("result?\n",self.X.T.dot(self.X))
+
 
         self.X = self.align(self.X.copy(),
                             self.X.copy(),
