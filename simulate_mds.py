@@ -66,7 +66,7 @@ class Simulator():
                                          [2., -1.5,  1., 0.]]).T
 
         # self.robot_positions = np.array([[0., 0., 0, 0.0],
-        #                                  [-2., 0.,  2., 10.]]).T
+        #                                  [-3., 0.,  2., 1.]]).T
         """np.ndarray : Node positions as a n x 2 np.ndarray where n is
         number of nodes in the network [m]."""
 
@@ -163,29 +163,6 @@ class Simulator():
             for pp in range(G.shape[0]):
                 print(G[pp,:,:])
 
-        # # U, S, Vh = torch.linalg.svd(G, full_matrices = True)
-        # L, Q = torch.linalg.eigh(G)
-        # L = torch.flip(L,[1])
-        # if self.verbose:
-        #     print("L check")
-        #     print(L.shape)
-        #     print(L)
-        #
-        #     print("Q check:")
-        #     print(Q.shape)
-        #     print("Q:\n",Q)
-        # S = torch.zeros(L.shape, dtype=torch.float64)
-        # if self.verbose:
-        #     print("S1 check:",S.shape)
-        # S[:,:self.dims] = torch.sqrt(L[:,:self.dims])
-        #
-        # S_full = torch.diag_embed(S, dim1=1, dim2=2)
-        # S_full = S_full[:,:self.dims,:]
-        # print("S full check:")
-        # print(S_full.shape)
-        # for pp in range(S_full.shape[0]):
-        #     print(S_full[pp,:,:])
-
         U, S, Vh = torch.linalg.svd(G, full_matrices=True)
         if self.verbose:
             print("S SVD check:")
@@ -217,6 +194,26 @@ class Simulator():
         self.X = self.align(self.X,
                             self.X.clone(),
                             Y)
+
+        I4 = np.zeros((self.dims,self.dims))
+        for rr in range(self.n - 1):
+            phi = np.arctan2(self.robot_positions[-1,0] \
+                         - self.robot_positions[rr,0],
+                           self.robot_positions[-1,1] \
+                         - self.robot_positions[rr,1])
+            I4 += np.array([[np.sin(phi)**2, np.sin(2*phi)/2.],
+                            [np.sin(2*phi)/2., np.cos(phi)**2]])
+
+        I4 *= (1./self.sensor_std**2)
+
+        self.CRLB4 = np.linalg.inv(I4)
+        p = 0.95
+        s = -2 * np.log(1. - p)
+        w, v = np.linalg.eig(s * self.CRLB4)
+        w = np.diag(w)
+        t = np.linspace(0, 2*np.pi, 100)
+        self.elipse = v.dot(np.sqrt(w)).dot(np.array([np.cos(t),np.sin(t)]))
+
 
     def align(self, X, Xa, Y):
         """Algins relative postions to absolute positions.
@@ -309,6 +306,13 @@ class Simulator():
                                 edgecolors="k"
                                 )
             self.map_scatters.append(new_map)
+
+        self.crlb_plot = self.ax_map.plot(self.elipse[0,:] \
+                                        + self.robot_positions[-1,0],
+                                          self.elipse[1,:] \
+                                        + self.robot_positions[-1,0],
+                                        "k")
+
         plt.xlim(-22,22)
         plt.ylim(-12,12)
         self.ax_map.set_aspect("equal", adjustable="datalim")
@@ -461,6 +465,11 @@ class Simulator():
                                             bins = 50, density = True)
             self.xy_distrib_axes[ii,1].hist(self.X[:, 1, ii].numpy(),
                      bins = 50, density = True, color="C"+str(ii +1))
+
+        self.crlb_plot[0].set_xdata(self.elipse[0,:] \
+                                  + self.robot_positions[-1,0])
+        self.crlb_plot[0].set_ydata(self.elipse[1,:] \
+                                  + self.robot_positions[-1,1])
 
         # self.ax_map.relim()
         # self.ax_map.autoscale_view()
