@@ -23,8 +23,6 @@ import matplotlib.pyplot as plt
 import scipy.spatial.distance as dist
 from matplotlib.widgets import Slider, Button
 
-
-
 def main():
 
     k = 10000
@@ -34,8 +32,7 @@ def main():
     """bool : print lots of debug statements."""
 
     s = Simulator(k, verbose)
-        # if kk % np.ceil(int(k/10)) == 0:
-        #     print(round(100.*(kk+1)/k,0),"% complete")
+
     s.model_truth()
     s.model_bias()
     s.model_white_noise()
@@ -65,8 +62,6 @@ class Simulator():
         self.robot_positions = np.array([[1., 0., -2., 0.0],
                                          [2., -1.5,  1., 0.]]).T
 
-        # self.robot_positions = np.array([[0., 0., 0, 0.0],
-        #                                  [-3., 0.,  2., 1.]]).T
         """np.ndarray : Node positions as a n x 2 np.ndarray where n is
         number of nodes in the network [m]."""
 
@@ -179,10 +174,7 @@ class Simulator():
             print(U.shape)
             print(U)
 
-        # U, S, V = np.linalg.svd(self.G)
-        # S = np.diag(S)[:self.dims,:]
         self.X = torch.matmul(S_full,torch.transpose(U,1,2))
-        # self.X = torch.matmul(S_full,Q)
         if self.verbose:
             print("X check")
             print(self.X.shape)
@@ -206,6 +198,7 @@ class Simulator():
 
         I4 *= (1./self.sensor_std**2)
 
+        # compute Cramer Rao Lower Bound and plot
         self.CRLB4 = np.linalg.inv(I4)
         p = 0.95
         s = -2 * np.log(1. - p)
@@ -471,9 +464,6 @@ class Simulator():
         self.crlb_plot[0].set_ydata(self.elipse[1,:] \
                                   + self.robot_positions[-1,1])
 
-        # self.ax_map.relim()
-        # self.ax_map.autoscale_view()
-        # self.ax_map.set_aspect("equal", adjustable="datalim")
         self.final_pos.set_offsets(self.robot_positions[-1,:])
 
         hist, bin_edges = np.histogram(self.noise[0,:],
@@ -527,9 +517,6 @@ class Simulator():
 
     def reset_posy_slider(self, event):
         self.posy_slider.reset()
-
-
-
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,18 @@
+"""Symbol math for double centering the EDM.
+
+The symbol math shows the transformation between the EDM and Gram
+matrix in Multidimensional Scaling [1]_.
+
+References
+----------
+.. [1] Dokmanic, R. Parhizkar, J. Ranieri, and M. Vetterli,
+       “Euclidean Distance Matrices: Essential theory, algorithms, and
+       applications,”IEEE Signal Processing Magazine, vol. 32, no. 6,
+       pp. 12–30, nov 2015.
+
+"""
+
+
 from sympy import *
 
 n = 4
